@@ -650,6 +650,8 @@ vector<double> BiCGStab(int taille_recouvrement, double beta, double alpha, doub
 
 int main(int argc, char **argv)
 {
+    MPI_Status Status;
+
 
     double alpha, beta, gamma, alpha_r, beta_r, dt;
     int n = Nx * Ny;
@@ -780,17 +782,19 @@ int main(int argc, char **argv)
         if (me==0){
 
             
-            //recv_stencil_up
+            //recv_stencil_down
+            MPI_Recv(&stencil_down[0], 3*Nx, MPI_DOUBLE, 1, 0, MPI_COMM_WORLD, &Status);
             
+
             RHS0 = second_membre(gamma,coeff_Robin,X,Y0,t,stencil_up,stencil_down,me, taille_recouvrement,1); //Y0 definie dans une boucle if (à resoudre) et ajout de la boucle du temps
-            U0   = BiCGStab( taille_recouvrement, beta,alpha gamma, coeff_Robin, RHS0, me);
+            U0   = BiCGStab( taille_recouvrement, beta,alpha, gamma, coeff_Robin, RHS0, me);
             for (int i=0;i<3*Nx;i++)
             {
                 stencil_up[i]=U0[(taille_0-3)*Nx+i];   // taille_0 à definir ou recuperer
             }
 
-            //send_U0
-            
+            //send_U0 = send stencil_up
+            MPI_Send(&stencil_up[0], 3*Nx, MPI_DOUBLE, 1, 0, MPI_COMM_WORLD);
 
         }
 
@@ -798,23 +802,30 @@ int main(int argc, char **argv)
         {
             
             //recv stencil_down
+            MPI_Recv(&stencil_up[0], 3*Nx, MPI_DOUBLE, np-2, 0, MPI_COMM_WORLD, &Status);
             
+
             RHSnp = second_membre(gamma,coeff_Robin,X,Ynp,t,stencil_up,stencil_down,me, taille_recouvrement,1); //Ynp definie dans une boucle if (à resoudre) et ajout de la boucle du temps
-            U1   = BiCGStab( taille_recouvrement, beta,alpha gamma, coeff_Robin, RHSnp, me);
+            Unp  = BiCGStab( taille_recouvrement, beta,alpha, gamma, coeff_Robin, RHSnp, me);
             for(int i=0;i<3*Nx;i++)
             {
-                stencil_down[i]=U1[i];
+                stencil_down[i]=Unp[i];
             }
 
             //send U1
+            MPI_Send(&stencil_down[0], 3*Nx, MPI_DOUBLE, np-2, 0, MPI_COMM_WORLD);
+
         }
 
         else{
 
             // recv stencil_up et  stencil_down
+            MPI_Recv(&stencil_up[0], 3*Nx, MPI_DOUBLE, me+1, 0, MPI_COMM_WORLD, &Status);
+            MPI_Recv(&stencil_down[0], 3*Nx, MPI_DOUBLE, me-1, 0, MPI_COMM_WORLD, &Status);
+            
             
             RHSme = second_membre(gamma,coeff_Robin,X,Ynp,t,stencil_up,stencil_down,me, taille_recouvrement,1); //idem
-            Ume   = BiCGStab( taille_recouvrement, beta,alpha gamma, coeff_Robin, RHSnp, me);
+            Ume   = BiCGStab( taille_recouvrement, beta,alpha, gamma, coeff_Robin, RHSnp, me);
 
             for (int i=0;i<3*Nx;i++){
 
@@ -823,7 +834,10 @@ int main(int argc, char **argv)
                 
             }
 
-            //Ume
+            // send Ume pour stencil_up et stencil_down
+            MPI_Send(&stencil_down[0], 3*Nx, MPI_DOUBLE, me-1, 0, MPI_COMM_WORLD);
+            MPI_Send(&stencil_down[0], 3*Nx, MPI_DOUBLE, me+1, 0, MPI_COMM_WORLD);
+
         }
 
     }
