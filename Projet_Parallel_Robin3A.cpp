@@ -691,14 +691,23 @@ int main(int argc, char **argv)
         X[i] = (i + 1) * dx;
     }
 
+    int taille_0,taille_vect_0;
+    vector<double> Y0,RHS0,U0;
+
+    int taille_np,taille_vect_np;
+    vector<double> Ynp,RHSnp,Unp;
+
+    int taille_me,taille_vect_me;
+    vector<double> Yme,RHSme,Ume;
+    
     if (me == 0)
     {
 
-        int taille_0 = (jend - jbeg + 1) + taille_recouvrement;
-        int taille_vect_0 = taille_0 * Nx ;  
-        vector<double> Y0(taille_0);
-        vector<double> RHS0(taille_vect_0) ;
-        vector<double> U0(taille_vect_0)   ;
+        taille_0 = (jend - jbeg + 1) + taille_recouvrement;
+        taille_vect_0 = taille_0 * Nx ;  
+        Y0.resize(taille_0);
+        RHS0.resize(taille_vect_0) ;
+        U0.resize(taille_vect_0)   ;
 
         for (int j = 0; j < taille_0; j++)
         {
@@ -716,12 +725,12 @@ int main(int argc, char **argv)
     else if (me == np - 1)
     {
 
-        int taille_np = jend - jbeg + 1;
-        int taille_vect_np = taille_np*Nx;
+        taille_np = jend - jbeg + 1;
+        taille_vect_np = taille_np*Nx;
 
-        vector<double> Ynp(taille_np);
-        vector<double> Unp(taille_vect_np);
-        vector <double> RHSnp(taille_vect_np);
+        Ynp.resize(taille_np);
+        Unp.resize(taille_vect_np);
+        RHSnp.resize(taille_vect_np);
 
         for (int j = taille_np - 1; j >= 0; --j)
         {
@@ -739,12 +748,12 @@ int main(int argc, char **argv)
     else
     {
 
-        int taille_me = (jend - jbeg + 1) + taille_recouvrement + 1;
-        int taille_vect_me = taille_me*Nx;
+        taille_me = (jend - jbeg + 1) + taille_recouvrement + 1;
+        taille_vect_me = taille_me*Nx;
         
-        vector<double> Yme(taille_me);
-        vector<double> Ume(taille_vect_me);
-        vector<double> RHSme(taille_me);
+        Yme.resize(taille_me);
+        Ume.resize(taille_vect_me);
+        RHSme.resize(taille_me);
 
 
         for (int j = 0; j < taille_me; j++)
@@ -763,7 +772,59 @@ int main(int argc, char **argv)
 
     double erreur = 1.;
     
-    While (iter<itermax && erreur < erreur_schwartz){
+    while (iter<itermax && erreur < erreur_schwartz){
+
+        vector<double> stencil_up(3*Nx);
+        vector<double> stencil_down(3*Nx);
+        
+        if (me==0){
+
+            
+            //recv_stencil_up
+            
+            RHS0 = second_membre(gamma,coeff_Robin,X,Y0,t,stencil_up,stencil_down,me, taille_recouvrement,1); //Y0 definie dans une boucle if (à resoudre) et ajout de la boucle du temps
+            U0   = BiCGStab( taille_recouvrement, beta,alpha gamma, coeff_Robin, RHS0, me);
+            for (int i=0;i<3*Nx;i++)
+            {
+                stencil_up[i]=U0[(taille_0-3)*Nx+i];   // taille_0 à definir ou recuperer
+            }
+
+            //send_U0
+            
+
+        }
+
+        else if (me==np-1)
+        {
+            
+            //recv stencil_down
+            
+            RHSnp = second_membre(gamma,coeff_Robin,X,Ynp,t,stencil_up,stencil_down,me, taille_recouvrement,1); //Ynp definie dans une boucle if (à resoudre) et ajout de la boucle du temps
+            U1   = BiCGStab( taille_recouvrement, beta,alpha gamma, coeff_Robin, RHSnp, me);
+            for(int i=0;i<3*Nx;i++)
+            {
+                stencil_down[i]=U1[i];
+            }
+
+            //send U1
+        }
+
+        else{
+
+            // recv stencil_up et  stencil_down
+            
+            RHSme = second_membre(gamma,coeff_Robin,X,Ynp,t,stencil_up,stencil_down,me, taille_recouvrement,1); //idem
+            Ume   = BiCGStab( taille_recouvrement, beta,alpha gamma, coeff_Robin, RHSnp, me);
+
+            for (int i=0;i<3*Nx;i++){
+
+                stencil_up[i]  = Ume [(taille_me-3)*Nx+i];
+                stencil_down[i]= Ume [i];
+                
+            }
+
+            //Ume
+        }
 
     }
 
