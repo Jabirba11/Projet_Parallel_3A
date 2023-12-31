@@ -673,6 +673,7 @@ int main(int argc, char **argv)
     nb_iterations = 100;
     double tf = 10.0;
     dt = tf/nb_iterations;
+    double t_debut,t_fin,temps_execution;
 
     double alpha, beta, gamma;
     alpha = 1 + D * dt * (2. / pow(dx, 2) + 2. / pow(dy, 2));
@@ -706,6 +707,7 @@ int main(int argc, char **argv)
     }
 
     MPI_Init(&argc, &argv);
+    t_debut = MPI_Wtime();
 
     MPI_Comm_size(MPI_COMM_WORLD, &np);
 
@@ -915,7 +917,9 @@ int main(int argc, char **argv)
 
     }
     
-    double fin = MPI_Wtime();
+    t_fin = MPI_Wtime();
+   temps_execution = t_fin - t_debut;
+    printf("Temps d'exécution de moi %d  %f seconds\n", me,temps_execution);
     MPI_Finalize();
 
     return 0;
