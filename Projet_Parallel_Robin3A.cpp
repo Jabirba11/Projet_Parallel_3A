@@ -1,4 +1,3 @@
-//  bonjour 
 #include <vector>
 #include <cstdlib>
 #include <iostream>
@@ -11,7 +10,7 @@ using namespace std;
 
 int Nx = 100, Ny = 100;
 double Lx = 1., Ly = 1., D = 1.;
-int np = 4;
+int np;
 
 double dx = Lx / (Nx + 1.);
 double dy = Ly / (Ny + 1.);
@@ -90,7 +89,7 @@ vector<double> Produit_matriciel_robin(int taille_recouvrement, double alpha, do
 {
 
     int ibeg, iend;
-    charge(me, Ny, np, &ibeg, &iend);
+    charge(me, Ny+1, np, &ibeg, &iend);
 
     // domaine bas (grille)
     if (me == 0)
@@ -245,7 +244,7 @@ vector<double> Produit_matriciel_robin(int taille_recouvrement, double alpha, do
             {
                 if (i == 0)
                 {
-                    prod[i] = (alpha + coeff_Robin) * U[i] + beta * U[i + 1] + 2 * gamma * (U[i + Nx]);
+                    prod[i] = (alpha + coeff_Robin) * U[i] + beta * U[i + 1] + 2 * gamma * U[i + Nx];
                 }
 
                 else if (i == Nx - 1)
@@ -300,7 +299,7 @@ vector<double> Produit_matriciel_robin(int taille_recouvrement, double alpha, do
     }
 }
 
-//---------------------Fonctions f, g, h : termes source selon les cas--------------------------------
+//---------------------Fonctions f, g, h : termes source et conditions aux bords selon les cas--------------------------------
 
 double f(double x, double y, double t, int cas)
 {
@@ -374,7 +373,7 @@ vector<double> second_membre(double beta, double gamma, double coeff_Robin, vect
     int sizex = xcoord.size();
     int sizey = ycoord.size();
 
-    vector<double> S(Nx * sizey);
+    vector<double> S(sizex * sizey);
 
     for (int j = 1; j <= sizey; j++)
     {
@@ -384,7 +383,7 @@ vector<double> second_membre(double beta, double gamma, double coeff_Robin, vect
         }
     }
 
-    int taille = sizey * Nx; // la taille du vecteur du domaine
+    int taille = sizey * sizex; // la taille du vecteur du domaine
 
     // cas domaine bas
     if (me == 0)
@@ -399,6 +398,7 @@ vector<double> second_membre(double beta, double gamma, double coeff_Robin, vect
                 if (i >= 1 and i < Nx + 1) // for (int i = 1; i < Nx+1 ; i++)
                 {
                     S[(j - 1) * Nx + (i - 1)] += -gamma * g(xcoord[i - 1], 0., cas);
+                    
                     if (i == 1)
                     {
                         S[(j - 1) * Nx + (i - 1)] += -beta * h(0, ycoord[j - 1], cas);
@@ -641,6 +641,7 @@ vector<double> BiCGStab(int taille_recouvrement, double beta, double alpha, doub
             r = Sousvect(s, vec8);
 
             norme_r = sqrt(produit_scalaire(r, r));
+            norme_b = sqrt(produit_scalaire(b, b));
 
             iteration++;
         }
@@ -650,43 +651,56 @@ vector<double> BiCGStab(int taille_recouvrement, double beta, double alpha, doub
 
 int main(int argc, char **argv)
 {
-    MPI_Status Status;
-
-
-    double alpha, beta, gamma, alpha_r, beta_r, dt;
-    int n = Nx * Ny;
-    int nb_iterations = 10000;
+    // Données sur la boucle en temps
+    int dt, nb_iterations;
+    nb_iterations = 100;
     double tf = 10.0;
-    int taille_recouvrement = 1;
-    int me, jbeg, jend;
+    dt = tf/nb_iterations;
 
-    double erreur_schwartz = 1e-8;
-    int iter = 0;
-    int itermax = 10000;
-
-    vector<double> X(Nx);
-    vector<double> stencil(3 * Nx);
-
-    for (int i=0 ; i<3*Nx; i++)
-    {
-        stencil[i] = 0.;
-    }
-    
-
-    alpha_r = 1. / 2.;
-    beta_r = 1. / 2.;
-    double coeff_Robin = 2 * dt * beta_r * D / (alpha_r * dy);
-
-    dt = tf / nb_iterations;
+    double alpha, beta, gamma;
     alpha = 1 + D * dt * (2. / pow(dx, 2) + 2. / pow(dy, 2));
     beta = -D * dt / pow(dx, 2);
     gamma = -D * dt / pow(dy, 2);
 
+    double alpha_r, beta_r, coeff_Robin;
+    alpha_r = 1. / 2.;
+    beta_r = 1. / 2.;
+    coeff_Robin = 2 * dt * beta_r * D / (alpha_r * dy);
+
+    // Choix du cas test :
+    int cas = 1;
+
+    // Données pour le bi-gradient conjugué
+    double erreur_schwartz = 1e-8;
+    int iter = 0;
+    int itermax = 10000;
+
+    // Longueur du recouvrement 
+    int taille_recouvrement = 1;
+
+
+    vector<double> X(Nx);
+    vector<double> stencil_up(3 * Nx), stencil_down(3 * Nx);
+
+    for (int i=0 ; i<3*Nx; i++)
+    {
+        stencil_up[i] = 0.;
+        stencil_down[i] = 0.;
+    }
+
     MPI_Init(&argc, &argv);
+
     MPI_Comm_size(MPI_COMM_WORLD, &np);
+
+    int me;
     MPI_Comm_rank(MPI_COMM_WORLD, &me);
 
+    int jbeg, jend;
     charge(me, Ny, np, &jbeg, &jend);
+
+    MPI_Status Status;
+
+    double debut = MPI_Wtime();
 
     for (int i = 0; i < Nx; i++)
     {
@@ -701,7 +715,8 @@ int main(int argc, char **argv)
 
     int taille_me,taille_vect_me;
     vector<double> Yme,RHSme,Ume;
-    
+
+    // Initialisation
     if (me == 0)
     {
 
@@ -720,7 +735,7 @@ int main(int argc, char **argv)
 
         for  (int k=0 ; k< taille_vect_0 ; k++){
 
-            RHS0[k]= 0.;
+            U0[k]= 0.;
         }
     }
 
@@ -742,7 +757,7 @@ int main(int argc, char **argv)
 
         for (int k = 0 ; k<taille_vect_np ; k++){
 
-            RHSnp[k]=0.; 
+            Unp[k]=0.; 
 
         }
     }
@@ -766,18 +781,18 @@ int main(int argc, char **argv)
 
         for(int k=0; k<taille_vect_me; k++){
             Ume[k]=0.;
-            RHSme[k]=0.;
 
         }
 
     }
 
     double erreur = 1.;
-    
-    while (iter<itermax && erreur < erreur_schwartz){
+    double tk;
 
-        vector<double> stencil_up(3*Nx);
-        vector<double> stencil_down(3*Nx);
+    for(int k = 0; k < nb_iterations; k++)
+    {
+        tk = (k+1) * dt;
+        while (iter<itermax && erreur < erreur_schwartz){
         
         if (me==0){
 
@@ -786,7 +801,7 @@ int main(int argc, char **argv)
             MPI_Recv(&stencil_down[0], 3*Nx, MPI_DOUBLE, 1, 0, MPI_COMM_WORLD, &Status);
             
 
-            RHS0 = second_membre(gamma,coeff_Robin,X,Y0,t,stencil_up,stencil_down,me, taille_recouvrement,1); //Y0 definie dans une boucle if (à resoudre) et ajout de la boucle du temps
+            RHS0 = second_membre(beta,gamma,coeff_Robin,X,Y0,tk,stencil_up,stencil_down,me, taille_recouvrement,cas); //Y0 definie dans une boucle if (à resoudre) et ajout de la boucle du temps
             U0   = BiCGStab( taille_recouvrement, beta,alpha, gamma, coeff_Robin, RHS0, me);
             for (int i=0;i<3*Nx;i++)
             {
@@ -805,7 +820,7 @@ int main(int argc, char **argv)
             MPI_Recv(&stencil_up[0], 3*Nx, MPI_DOUBLE, np-2, 0, MPI_COMM_WORLD, &Status);
             
 
-            RHSnp = second_membre(gamma,coeff_Robin,X,Ynp,t,stencil_up,stencil_down,me, taille_recouvrement,1); //Ynp definie dans une boucle if (à resoudre) et ajout de la boucle du temps
+            RHSnp = second_membre(beta,gamma,coeff_Robin,X,Ynp,tk,stencil_up,stencil_down,me, taille_recouvrement,cas); //Ynp definie dans une boucle if (à resoudre) et ajout de la boucle du temps
             Unp  = BiCGStab( taille_recouvrement, beta,alpha, gamma, coeff_Robin, RHSnp, me);
             for(int i=0;i<3*Nx;i++)
             {
@@ -824,7 +839,7 @@ int main(int argc, char **argv)
             MPI_Recv(&stencil_down[0], 3*Nx, MPI_DOUBLE, me-1, 0, MPI_COMM_WORLD, &Status);
             
             
-            RHSme = second_membre(gamma,coeff_Robin,X,Ynp,t,stencil_up,stencil_down,me, taille_recouvrement,1); //idem
+            RHSme = second_membre(beta,gamma,coeff_Robin,X,Ynp,tk,stencil_up,stencil_down,me, taille_recouvrement,cas); //idem
             Ume   = BiCGStab( taille_recouvrement, beta,alpha, gamma, coeff_Robin, RHSnp, me);
 
             for (int i=0;i<3*Nx;i++){
@@ -839,11 +854,11 @@ int main(int argc, char **argv)
             MPI_Send(&stencil_down[0], 3*Nx, MPI_DOUBLE, me+1, 0, MPI_COMM_WORLD);
 
         }
-
+        iter = iter + 1;
     }
-
-
-
+    }
+    
+    double fin = MPI_Wtime();
     MPI_Finalize();
 
     return 0;
