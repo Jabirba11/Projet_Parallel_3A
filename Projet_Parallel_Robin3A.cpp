@@ -365,6 +365,23 @@ double h(double x, double y, int cas)
     return r_h;
 }
 
+//---------------Fonction contenant les solutions exactes -------------------------------
+  double sol_exa(double x, double y,int cas)
+  {
+    if (cas == 1) {
+        return x*(1-x)*y*(1-y);
+    }
+    else if (cas == 2) {
+        return sin(x)+cos(y);
+    }
+
+    else
+    {
+      return 0;
+    }
+
+  }
+
 //---------------------vecteur second membre----------------------------------
 
 vector<double> second_membre(double beta, double gamma, double coeff_Robin, vector<double> xcoord, vector<double> ycoord, double t, vector<double> stencil_up, vector<double> stencil_down, int me, int taille_recouvrement, int cas)
@@ -856,6 +873,46 @@ int main(int argc, char **argv)
         }
         iter = iter + 1;
     }
+
+    if (me == 0)
+    {   
+        std::string filename = "Results_" + std::to_string(cas) + "_" + std::to_string(me) + "_" + std::to_string(k) +  ".dat";
+        std::ofstream outfile(filename);
+        for (int i = 0; i < Nx; ++i) {
+            for (int j = 0; j < taille_0; j++)
+            {
+                outfile << X[i] << " " << Y0[j] << " " << U0[j * Nx + i] << " " << sol_exa(X[i], Y0[j], cas) << std::endl;
+            }
+        }
+        outfile.close();
+    }
+
+    else if (me == np - 1)
+    {   
+        std::string filename = "Results_" + std::to_string(cas) + "_" + std::to_string(me) + "_" + std::to_string(k) +  ".dat";
+        std::ofstream outfile(filename);
+        for (int i = 0; i < Nx; ++i) {
+            for (int j = 0; j < taille_np; j++)
+            {
+                outfile << X[i] << " " << Ynp[j] << " " << Unp[(Ynp[j] - 1) * Nx + X[i] - 1] << " " << sol_exa(X[i], Ynp[j], cas) << std::endl;
+            }
+        }
+        outfile.close();
+    }
+
+    else 
+    {
+        std::string filename = "Results_" + std::to_string(cas) + "_" + std::to_string(me) + "_" + std::to_string(k) +  ".dat";
+        std::ofstream outfile(filename);
+        for (int i = 0; i < Nx; ++i) {
+            for (int j = 0; j < taille_me; j++)
+            {
+                outfile << X[i] << " " << Yme[j] << " " << Ume[(Yme[j] - 1) * Nx + (X[i] - 1)] << " " << sol_exa(X[i], Yme[j], cas) << std::endl;
+            }
+        }
+        outfile.close();
+    }
+
     }
     
     double fin = MPI_Wtime();
