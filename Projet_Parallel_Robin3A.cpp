@@ -8,7 +8,7 @@
 
 using namespace std;
 
-int Nx = 100, Ny = 100;
+int Nx = 10, Ny = 14;
 double Lx = 1., Ly = 1., D = 1.;
 int np;
 
@@ -24,12 +24,12 @@ void charge(int me, int N_y, int np, int *ligne_beg, int *ligne_end)
 
     if (me < r)
     {
-        *ligne_beg = me * (m + 1);
-        *ligne_end = (me + 1) * (m + 1) - 1;
+        *ligne_beg = me * (m + 1) + 1;
+        *ligne_end = (me + 1) * (m + 1) ;
     }
     else
     {
-        *ligne_beg = r + me * m;
+        *ligne_beg = r + me * m + 1;
         *ligne_end = *ligne_beg + m - 1;
     }
 }
@@ -83,13 +83,26 @@ vector<double> multi_scalaire(double a, vector<double> x)
     return s;
 }
 
+//-------------------Fonction pour calculer l'erreur------------------------------------
+  double normeL2(std::vector<double> vec1, std::vector<double> vec2)
+  {
+
+      double E = 0.;
+      for (int i = 0; i < vec1.size(); ++i) {
+          double diff = vec1[i] - vec2[i];
+          E+= diff * diff;
+      }
+
+      return sqrt(E);
+  }
+
 //---------------------Produit matrice/vecteur----------------------------------
 
 vector<double> Produit_matriciel_robin(int taille_recouvrement, double alpha, double beta, double gamma, double coeff_Robin, vector<double> U, int me)
 {
 
     int ibeg, iend;
-    charge(me, Ny+1, np, &ibeg, &iend);
+    charge(me, Ny, np, &ibeg, &iend);
 
     // domaine bas (grille)
     if (me == 0)
@@ -232,7 +245,7 @@ vector<double> Produit_matriciel_robin(int taille_recouvrement, double alpha, do
     // domaine milieu
     else
     {
-        int Nme = (iend - ibeg + 1) + taille_recouvrement + 1;
+        int Nme = (iend - ibeg + 1) + taille_recouvrement;
         int taille_me = Nme * Nx; // la taille du vecteur en 2D du kieme domaine
 
         vector<double> prod(taille_me);
@@ -384,7 +397,7 @@ double h(double x, double y, int cas)
 
 //---------------------vecteur second membre----------------------------------
 
-vector<double> second_membre(double beta, double gamma, double coeff_Robin, vector<double> xcoord, vector<double> ycoord, double t, vector<double> stencil_up, vector<double> stencil_down, int me, int taille_recouvrement, int cas)
+vector<double> second_membre(double dt, double beta, double gamma, double coeff_Robin, vector<double> xcoord, vector<double> ycoord, double t, vector<double> stencil_up, vector<double> stencil_down, int me, vector<double> U, int taille_recouvrement, int cas)
 {
 
     int sizex = xcoord.size();
@@ -396,7 +409,7 @@ vector<double> second_membre(double beta, double gamma, double coeff_Robin, vect
     {
         for (int i = 1; i <= sizex; i++)
         {
-            S[(j - 1) * Nx + (i - 1)] = f(xcoord[i - 1], ycoord[j - 1], t, cas);
+            S[(j - 1) * Nx + (i - 1)] = U[(j - 1) * Nx + (i - 1)] + dt * f(xcoord[i - 1], ycoord[j - 1], t, cas);
         }
     }
 
@@ -595,7 +608,7 @@ vector<double> BiCGStab(int taille_recouvrement, double beta, double alpha, doub
     int size = b.size();
     vector<double> r(size), rs(size), x(size), v(size), p(size), s(size), t(size);
     int iteration;
-    int iterationmax = 10000;
+    int iterationmax = 100;
     double epsilon = 1e-10;
     double rho, rho_prev;
     double alpha_GC, beta_GC, omega_GC;
@@ -612,12 +625,11 @@ vector<double> BiCGStab(int taille_recouvrement, double beta, double alpha, doub
         p[i] = 0.;
     }
 
-    alpha_GC = 1.;
-    beta_GC = 1.;
-    omega_GC = 1.;
-
     r = Sousvect(b, Produit_matriciel_robin(taille_recouvrement, alpha, beta, gamma, coeff_Robin, x, me));
     rs = r;
+
+    alpha_GC = 1.;
+    omega_GC = 1.;
 
     rho = 1.;
 
@@ -669,45 +681,44 @@ vector<double> BiCGStab(int taille_recouvrement, double beta, double alpha, doub
 int main(int argc, char **argv)
 {
     // Données sur la boucle en temps
-    int dt, nb_iterations;
+    int nb_iterations;
+    double dt;
     nb_iterations = 100;
     double tf = 10.0;
     dt = tf/nb_iterations;
-    double t_debut,t_fin,temps_execution;
+    //cout << "dt = " << dt << std::endl;
 
     double alpha, beta, gamma;
-    alpha = 1 + D * dt * (2. / pow(dx, 2) + 2. / pow(dy, 2));
-    beta = -D * dt / pow(dx, 2);
-    gamma = -D * dt / pow(dy, 2);
+    alpha = 1 + D * dt * (2./pow(dx, 2) + 2./pow(dy, 2));
+    beta = -D * dt/pow(dx, 2);
+    gamma = -D * dt/pow(dy, 2);
 
     double alpha_r, beta_r, coeff_Robin;
-    alpha_r = 1. / 2.;
-    beta_r = 1. / 2.;
+    alpha_r = 1./2.;
+    beta_r = 1./2.;
     coeff_Robin = 2 * dt * beta_r * D / (alpha_r * dy);
 
     // Choix du cas test :
-    int cas = 1;
+    int cas = 3;
 
     // Données pour le bi-gradient conjugué
-    double erreur_schwartz = 1e-8;
+    double seuil_schwartz = 1e-8;
     int iter = 0;
-    int itermax = 10000;
+    int itermax = 10;
 
     // Longueur du recouvrement 
     int taille_recouvrement = 1;
 
 
     vector<double> X(Nx);
-    vector<double> stencil_up(3 * Nx), stencil_down(3 * Nx);
-
-    for (int i=0 ; i<3*Nx; i++)
+    for (int i = 0; i < Nx; i++)
     {
-        stencil_up[i] = 0.;
-        stencil_down[i] = 0.;
+        X[i] = (i + 1) * dx;
     }
 
+
+//----------------------------------------Région MPI----------------------------------
     MPI_Init(&argc, &argv);
-    t_debut = MPI_Wtime();
 
     MPI_Comm_size(MPI_COMM_WORLD, &np);
 
@@ -716,24 +727,20 @@ int main(int argc, char **argv)
 
     int jbeg, jend;
     charge(me, Ny, np, &jbeg, &jend);
+    printf("me = %d , jbeg = %d, jend = %d\n", me, jbeg, jend);
 
     MPI_Status Status;
 
     double debut = MPI_Wtime();
 
-    for (int i = 0; i < Nx; i++)
-    {
-        X[i] = (i + 1) * dx;
-    }
-
     int taille_0,taille_vect_0;
-    vector<double> Y0,RHS0,U0;
+    vector<double> Y0, RHS0, U0, prod_0;
 
     int taille_np,taille_vect_np;
-    vector<double> Ynp,RHSnp,Unp;
+    vector<double> Ynp, RHSnp, Unp, Unp_ex;
 
     int taille_me,taille_vect_me;
-    vector<double> Yme,RHSme,Ume;
+    vector<double> Yme, RHSme, Ume, Ume_ex;
 
     // Initialisation
     if (me == 0)
@@ -743,19 +750,26 @@ int main(int argc, char **argv)
         taille_vect_0 = taille_0 * Nx ;  
         Y0.resize(taille_0);
         RHS0.resize(taille_vect_0) ;
-        U0.resize(taille_vect_0)   ;
+        U0.resize(taille_vect_0);
+        prod_0.resize(taille_vect_0);
 
         for (int j = 0; j < taille_0; j++)
         {
 
             Y0[j] = (j + 1) * dy;
+            //printf("me = %d, Y0[%d] = %f\n", me, j, Y0[j]);
           
         }
 
         for  (int k=0 ; k< taille_vect_0 ; k++){
 
-            U0[k]= 0.;
+            U0[k]= 1.;
         }
+
+        prod_0 = Produit_matriciel_robin(taille_recouvrement, alpha, beta, gamma, coeff_Robin, U0, me);
+        // for  (int k=0 ; k< taille_vect_0 ; k++){
+        //     printf("me = %d, prod_0[%d] = %f\n", me, k, prod_0[k]);
+        // }
     }
 
     else if (me == np - 1)
@@ -766,6 +780,7 @@ int main(int argc, char **argv)
 
         Ynp.resize(taille_np);
         Unp.resize(taille_vect_np);
+        Unp_ex.resize(taille_vect_np);
         RHSnp.resize(taille_vect_np);
 
         for (int j = taille_np - 1; j >= 0; --j)
@@ -776,7 +791,7 @@ int main(int argc, char **argv)
 
         for (int k = 0 ; k<taille_vect_np ; k++){
 
-            Unp[k]=0.; 
+            Unp[k]=1.; 
 
         }
     }
@@ -784,95 +799,164 @@ int main(int argc, char **argv)
     else
     {
 
-        taille_me = (jend - jbeg + 1) + taille_recouvrement + 1;
+        taille_me = (jend - jbeg + 1) + taille_recouvrement;
         taille_vect_me = taille_me*Nx;
         
         Yme.resize(taille_me);
         Ume.resize(taille_vect_me);
-        RHSme.resize(taille_me);
+        Ume_ex.resize(taille_vect_me);
+        RHSme.resize(taille_vect_me);
 
 
         for (int j = 0; j < taille_me; j++)
         {
             Yme[j] = (jbeg + j) * dy;
+            //printf("me = %d, Yme[%d] = %f\n", me, j, Yme[j]);
             
         }
 
         for(int k=0; k<taille_vect_me; k++){
-            Ume[k]=0.;
+            Ume[k]=1.;
 
         }
 
     }
 
+    vector<double> stencil_up(3 * Nx), stencil_down(3 * Nx);
+
+    for (int i=0 ; i<3*Nx; i++)
+    {
+        stencil_up[i] = 1.;
+        stencil_down[i] = 1.;
+    }
+
     double erreur = 1.;
     double tk;
 
-    for(int k = 0; k < nb_iterations; k++)
+    double erreur_schwartz = 1.0;
+    double err_scwhartz ;
+
+    for(int k = 0; k < 1; k++)
     {
         tk = (k+1) * dt;
-        while (iter<itermax && erreur < erreur_schwartz){
-        
+        //while (iter<itermax && erreur_schwartz > seuil_schwartz){
+        while (iter<1 ){
         if (me==0){
-
+            //double erreur_schwartz_0 = 0.;
+    
+            vector<double>Common_down((taille_recouvrement+1)*Nx);
+         
+            vector<double> U0_old(taille_vect_0);
             
-            //recv_stencil_down
-            MPI_Recv(&stencil_down[0], 3*Nx, MPI_DOUBLE, 1, 0, MPI_COMM_WORLD, &Status);
-            
+            U0_old = U0 ;
 
-            RHS0 = second_membre(beta,gamma,coeff_Robin,X,Y0,tk,stencil_up,stencil_down,me, taille_recouvrement,cas); //Y0 definie dans une boucle if (à resoudre) et ajout de la boucle du temps
-            U0   = BiCGStab( taille_recouvrement, beta,alpha, gamma, coeff_Robin, RHS0, me);
-            for (int i=0;i<3*Nx;i++)
+            for (int i=0 ; i < (taille_recouvrement+1)*Nx ; i++)
             {
-                stencil_up[i]=U0[(taille_0-3)*Nx+i];   // taille_0 à definir ou recuperer
+                Common_down[i] = U0_old[taille_vect_0-(taille_recouvrement+1)*Nx + i] ;
             }
 
-            //send_U0 = send stencil_up
+            RHS0 = second_membre(dt, beta,gamma,coeff_Robin,X,Y0,tk,stencil_up,stencil_down,me, U0, taille_recouvrement,cas); 
+            // for (int i=0 ; i<RHS0.size();i++)
+            // {
+            //     printf("me = %d, RHS0[%d] = %f\n", me, i, RHS0[i]);
+            // }
+            U0   = BiCGStab( taille_recouvrement, beta,alpha, gamma, coeff_Robin, RHS0, me);
+            for (int i=0 ; i<taille_vect_0;i++)
+            {
+                printf("U0[%d] = %f\n", i, U0[i]);
+            }
+
+            for (int i=0;i<3*Nx;i++)
+            {
+                stencil_up[i]=U0[(taille_0 - (taille_recouvrement + 2)) * Nx + i];   // taille_0 à definir ou recuperer
+            }
+
+            for (int i=0 ; i<(taille_recouvrement+1)*Nx ; i++)
+            {
+                err_scwhartz = fabs(Common_down[i] - U0[taille_vect_0-(taille_recouvrement+1)*Nx + i]);
+            }
+
             MPI_Send(&stencil_up[0], 3*Nx, MPI_DOUBLE, 1, 0, MPI_COMM_WORLD);
+            MPI_Recv(&stencil_up[0], 3*Nx, MPI_DOUBLE, 1, 0, MPI_COMM_WORLD, &Status);
 
         }
 
         else if (me==np-1)
         {
-            
-            //recv stencil_down
-            MPI_Recv(&stencil_up[0], 3*Nx, MPI_DOUBLE, np-2, 0, MPI_COMM_WORLD, &Status);
-            
+            //double erreur_schwartz_np = 0.;
 
-            RHSnp = second_membre(beta,gamma,coeff_Robin,X,Ynp,tk,stencil_up,stencil_down,me, taille_recouvrement,cas); //Ynp definie dans une boucle if (à resoudre) et ajout de la boucle du temps
-            Unp  = BiCGStab( taille_recouvrement, beta,alpha, gamma, coeff_Robin, RHSnp, me);
-            for(int i=0;i<3*Nx;i++)
+            vector<double>Common_up_np((taille_recouvrement+1)*Nx);
+         
+            vector<double> Unp_old(taille_vect_np);
+            
+            Unp_old = Unp;
+
+            for (int i=0 ; i < (taille_recouvrement+1)*Nx ; i++)
             {
-                stencil_down[i]=Unp[i];
+                Common_up_np[i] = Unp_old[i] ;
             }
 
-            //send U1
-            MPI_Send(&stencil_down[0], 3*Nx, MPI_DOUBLE, np-2, 0, MPI_COMM_WORLD);
+            RHSnp = second_membre(dt, beta,gamma,coeff_Robin,X,Ynp,tk,stencil_up,stencil_down,me, Unp, taille_recouvrement,cas); //Ynp definie dans une boucle if (à resoudre) et ajout de la boucle du temps
+            Unp  = BiCGStab( taille_recouvrement, beta,alpha, gamma, coeff_Robin, RHSnp, me);
+
+            for(int i=0;i<3*Nx;i++)
+            {
+                stencil_down[i]=Unp[i + (taille_recouvrement - 1) * Nx];
+            }
+
+            for (int i=0 ; i<(taille_recouvrement+1)*Nx ; i++)
+            {
+                err_scwhartz = fabs(Common_up_np[i] - Unp[i]);
+            }
+            
+            MPI_Send(&stencil_down[0], 3*Nx, MPI_DOUBLE, np-2, 0, MPI_COMM_WORLD);    
+            MPI_Recv(&stencil_down[0], 3*Nx, MPI_DOUBLE, np-2, 0, MPI_COMM_WORLD, &Status);
 
         }
 
         else{
+            //double erreur_schwartz_me = 0.;
+            double err1,err2;
 
-            // recv stencil_up et  stencil_down
-            MPI_Recv(&stencil_up[0], 3*Nx, MPI_DOUBLE, me+1, 0, MPI_COMM_WORLD, &Status);
-            MPI_Recv(&stencil_down[0], 3*Nx, MPI_DOUBLE, me-1, 0, MPI_COMM_WORLD, &Status);
-            
-            
-            RHSme = second_membre(beta,gamma,coeff_Robin,X,Ynp,tk,stencil_up,stencil_down,me, taille_recouvrement,cas); //idem
-            Ume   = BiCGStab( taille_recouvrement, beta,alpha, gamma, coeff_Robin, RHSnp, me);
+            vector<double>Common_down_me((taille_recouvrement+1)*Nx);
+            vector<double>Common_up_me((taille_recouvrement+1)*Nx);
+
+            vector<double> Ume_old(taille_vect_me);
+
+            Ume_old = Ume ;
+
+            for (int i=0 ; i < (taille_recouvrement+1)*Nx ; i++)
+            {
+                Common_down_me[i] = Ume[taille_vect_me-(taille_recouvrement+1)*Nx + i] ;
+                Common_up_me[i]   = Ume[i] ;
+            }
+
+            RHSme = second_membre(dt, beta,gamma,coeff_Robin,X,Yme,tk,stencil_up,stencil_down,me, Ume, taille_recouvrement,cas); //idem
+            Ume   = BiCGStab( taille_recouvrement, beta,alpha, gamma, coeff_Robin, RHSme, me);
 
             for (int i=0;i<3*Nx;i++){
 
-                stencil_up[i]  = Ume [(taille_me-3)*Nx+i];
-                stencil_down[i]= Ume [i];
+                stencil_up[i]  = Ume [(taille_me - (taille_recouvrement + 2)) * Nx + i];
+                stencil_down[i]= Ume [i + (taille_recouvrement - 1) * Nx];
                 
             }
 
-            // send Ume pour stencil_up et stencil_down
+            for (int i=0 ; i<(taille_recouvrement+1)*Nx ; i++)
+            {
+                err1 = fabs(Ume[taille_vect_me-(taille_recouvrement+1)*Nx + i]-Common_down_me[i]);
+                err2 = fabs(Ume[i]-Common_up_me[i]);
+
+                err_scwhartz = fmax(err1, err2);
+            }
+
             MPI_Send(&stencil_down[0], 3*Nx, MPI_DOUBLE, me-1, 0, MPI_COMM_WORLD);
-            MPI_Send(&stencil_down[0], 3*Nx, MPI_DOUBLE, me+1, 0, MPI_COMM_WORLD);
+            MPI_Send(&stencil_up[0], 3*Nx, MPI_DOUBLE, me+1, 0, MPI_COMM_WORLD);
+
+            MPI_Recv(&stencil_up[0], 3*Nx, MPI_DOUBLE, me+1, 0, MPI_COMM_WORLD, &Status);
+            MPI_Recv(&stencil_down[0], 3*Nx, MPI_DOUBLE, me-1, 0, MPI_COMM_WORLD, &Status);
 
         }
+        MPI_Allreduce(&err_scwhartz,&erreur_schwartz,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
         iter = iter + 1;
     }
 
@@ -883,7 +967,7 @@ int main(int argc, char **argv)
         for (int i = 0; i < Nx; ++i) {
             for (int j = 0; j < taille_0; j++)
             {
-                outfile << X[i] << " " << Y0[j] << " " << U0[j * Nx + i] << " " << sol_exa(X[i], Y0[j], cas) << std::endl;
+                outfile << X[i] << " " << Y0[j] << " " << U0[j * Nx + i ] << " " << sol_exa(X[i], Y0[j], cas) << std::endl;
             }
         }
         outfile.close();
@@ -896,7 +980,7 @@ int main(int argc, char **argv)
         for (int i = 0; i < Nx; ++i) {
             for (int j = 0; j < taille_np; j++)
             {
-                outfile << X[i] << " " << Ynp[j] << " " << Unp[(Ynp[j] - 1) * Nx + X[i] - 1] << " " << sol_exa(X[i], Ynp[j], cas) << std::endl;
+                outfile << X[i] << " " << Ynp[j] << " " << Unp[j * Nx + i] << " " << sol_exa(X[i], Ynp[j], cas) << std::endl;
             }
         }
         outfile.close();
@@ -909,17 +993,79 @@ int main(int argc, char **argv)
         for (int i = 0; i < Nx; ++i) {
             for (int j = 0; j < taille_me; j++)
             {
-                outfile << X[i] << " " << Yme[j] << " " << Ume[(Yme[j] - 1) * Nx + (X[i] - 1)] << " " << sol_exa(X[i], Yme[j], cas) << std::endl;
+                outfile << X[i] << " " << Yme[j] << " " << Ume[j * Nx + i ] << " " << sol_exa(X[i], Yme[j], cas) << std::endl;
             }
         }
         outfile.close();
     }
 
     }
+    if (me == 0)
+    {
+        //Afficher U0
+        //printf("U0:\n");
+        for (int k = 0; k < taille_vect_0; k++) {
+            //printf("U0[%d] = %f\n", k, U0[k]);
+        }
+        //printf("\n");
+
+        // Afficher U0_ex
+        //printf("U0_ex:\n");
+        for (int k = 0; k < taille_vect_0; k++) { // Assurez-vous que taille_vect_0 est la bonne taille pour U0_ex
+            //printf("U0_ex[%d] = %f\n", k, U0_ex[k]);
+        }
+        //printf("\n");
+
+        double err_0;
+        vector<double> U0_ex;
+        U0_ex.resize(taille_vect_0);
+        
+        for (int i = 0; i < Nx; ++i) {
+            for (int j = 0; j < taille_0; j++)
+            {   
+                int k;
+                k = j * Nx + i;
+                U0_ex[k] =  sol_exa(X[i], Y0[j], cas);
+            }
+        }
+        err_0 = normeL2(U0,U0_ex);
+        //printf("L'erreur est %.15f \n", err_0);
+    }
+
+    if (me == np - 1)
+    {
+        double err_np;
+        vector<double> Unp_ex;
+        Unp_ex.resize(taille_vect_np);
+        
+        for (int i = 0; i < Nx; ++i) {
+            for (int j = 0; j < taille_np; j++)
+            {   
+                int k;
+                k = j * Nx + i;
+                Unp_ex[k] =  sol_exa(X[i], Ynp[j], cas);
+            }
+        }
+
+        // Afficher Unp
+        //printf("Unp:\n");
+        for (int k = 0; k < taille_vect_np; k++) {
+            //printf("Unp[%d] = %f\n", k, Unp[k]);
+        }
+        //printf("\n");
+
+        // Afficher Unp_ex
+        //printf("Unp_ex:\n");
+        for (int k = 0; k < taille_vect_np; k++) { // Assurez-vous que taille_vect_0 est la bonne taille pour U0_ex
+            //printf("Unp_ex[%d] = %f\n", k, Unp_ex[k]);
+        }
+        //printf("\n");
+
+        err_np = normeL2(Unp,Unp_ex);
+        //printf("L'erreur est %.15f \n", err_np);
+    }
     
-    t_fin = MPI_Wtime();
-   temps_execution = t_fin - t_debut;
-    printf("Temps d'exécution de moi %d  %f seconds\n", me,temps_execution);
+    double fin = MPI_Wtime();
     MPI_Finalize();
 
     return 0;
